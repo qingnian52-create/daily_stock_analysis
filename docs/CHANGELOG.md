@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [改进] 个股报告不再单独展示“题材主线与个股位置”卡片，相关市场结构数据仍保留在分析上下文、模型 Prompt 与决策信号提取链路中。
 - [改进] 通知推送与完整 Markdown/微信报告不再重复附加“AI 决策信号”摘要，DecisionSignal 的存储、告警和 Web AI 建议页保持不变。
 - [改进] TickFlow 新增基于申万一级行业池的行业涨跌排行 fallback，并将基本面/市场结构单能力默认超时由 3 秒调整为 8 秒，降低正常慢响应被提前降级的概率。
+- [新功能] 新增美股早报专用 GitHub Actions 与 `scripts/us_morning_report.py`，先用 Yahoo Finance 排名，只对 Top 10 做 Tavily/Gemini 增强，并发送分组 Telegram 汇总。
+- [改进] 美股早报定时调整为马来西亚时间周二至周六 08:00，并将旧每日分析 workflow 改为仅手动触发，避免 Telegram 定时重复推送。
+- [改进] 美股早报 Telegram 顶部扩展为中文市场晨报 Summary，纳入指数、VIX、美债、美元、BTC、板块强弱、市场新闻和扫描结构，并在超长时按完整区块拆分。
+- [改进] 美股早报 Telegram 个股输出改为 Best Trade / Second Choice / Watch / Avoid 分组，并为每只展示确定性 Confidence、持有周期和三段式 Reason。
+- [新功能] 新增美股早报 AI Performance Tracker Phase 1，提供 SignalRecord、Yahoo Finance OHLC 确定性评估、JSON/JSONL 持久化、统计摘要和独立 CLI，暂未接入 Telegram/workflow。
+- [新功能] 接入美股早报 AI Performance Tracker Phase 2：workflow 读写 `performance-data` 分支、Telegram 追加近期表现、月初生成结构化月报，并保持主扫描逻辑不变。
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
 

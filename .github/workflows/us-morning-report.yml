@@ -1,0 +1,128 @@
+name: US Morning Trading Report
+
+on:
+  # GitHub Actions cron uses UTC.
+  # 00:00 UTC Tuesday-Saturday = 08:00 Malaysia time Tuesday-Saturday.
+  schedule:
+    - cron: '0 0 * * 2-6'
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: "Optional comma-separated US symbols; defaults to US_STOCK_UNIVERSE"
+        required: false
+        type: string
+      no_telegram:
+        description: "Generate report artifact without sending Telegram"
+        required: false
+        default: false
+        type: boolean
+      performance_write:
+        description: "Write performance tracker data; schedule runs write by default, manual runs default to false"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: us-morning-report-performance
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install report dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pandas numpy yfinance requests tavily-python litellm python-dotenv
+
+      - name: Decide performance write mode
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "PERFORMANCE_WRITE_EFFECTIVE=true" >> "$GITHUB_ENV"
+          elif [ "${{ github.event.inputs.performance_write }}" = "true" ]; then
+            echo "PERFORMANCE_WRITE_EFFECTIVE=true" >> "$GITHUB_ENV"
+          elif [ "${{ vars.PERFORMANCE_MANUAL_WRITE_DEFAULT || 'false' }}" = "true" ]; then
+            echo "PERFORMANCE_WRITE_EFFECTIVE=true" >> "$GITHUB_ENV"
+          else
+            echo "PERFORMANCE_WRITE_EFFECTIVE=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Load performance-data branch
+        continue-on-error: true
+        if: vars.PERFORMANCE_TRACKING_ENABLED != 'false'
+        env:
+          PERFORMANCE_DATA_BRANCH: ${{ vars.PERFORMANCE_DATA_BRANCH || 'performance-data' }}
+        run: |
+          python scripts/performance_tracker.py load-branch --root . --branch "$PERFORMANCE_DATA_BRANCH"
+
+      - name: Generate US morning report with performance tracker
+        env:
+          INPUT_SYMBOLS: ${{ github.event.inputs.symbols }}
+          INPUT_NO_TELEGRAM: ${{ github.event.inputs.no_telegram }}
+          US_STOCK_UNIVERSE: ${{ vars.US_STOCK_UNIVERSE }}
+          US_REPORT_TOP_N: ${{ vars.US_REPORT_TOP_N || '10' }}
+          US_REPORT_YFINANCE_PERIOD: ${{ vars.US_REPORT_YFINANCE_PERIOD || '6mo' }}
+          PERFORMANCE_TRACKING_ENABLED: ${{ vars.PERFORMANCE_TRACKING_ENABLED || 'true' }}
+          PERFORMANCE_DATA_BRANCH: ${{ vars.PERFORMANCE_DATA_BRANCH || 'performance-data' }}
+          PERFORMANCE_SIGNAL_EXPIRY_DAYS: ${{ vars.PERFORMANCE_SIGNAL_EXPIRY_DAYS || '10' }}
+          PERFORMANCE_MAX_HOLDING_DAYS: ${{ vars.PERFORMANCE_MAX_HOLDING_DAYS || '10' }}
+          PERFORMANCE_INCLUDE_WATCH: ${{ vars.PERFORMANCE_INCLUDE_WATCH || 'false' }}
+          PERFORMANCE_RECENT_WINDOW_DAYS: ${{ vars.PERFORMANCE_RECENT_WINDOW_DAYS || '30' }}
+          PERFORMANCE_MONTHLY_REPORT_ENABLED: ${{ vars.PERFORMANCE_MONTHLY_REPORT_ENABLED || 'true' }}
+          PERFORMANCE_CONSERVATIVE_AMBIGUOUS: ${{ vars.PERFORMANCE_CONSERVATIVE_AMBIGUOUS || 'true' }}
+          PERFORMANCE_TELEGRAM_SUMMARY_ENABLED: ${{ vars.PERFORMANCE_TELEGRAM_SUMMARY_ENABLED || 'true' }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || secrets.GEMINI_MODEL || 'gemini-2.5-flash' }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          TAVILY_API_KEYS: ${{ secrets.TAVILY_API_KEYS }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
+        run: |
+          mkdir -p reports
+          args=()
+          if [ -n "${INPUT_SYMBOLS:-}" ]; then
+            args+=(--symbols "$INPUT_SYMBOLS")
+          fi
+          if [ "${INPUT_NO_TELEGRAM:-}" = "true" ]; then
+            args+=(--no-telegram)
+          fi
+          if [ "${PERFORMANCE_WRITE_EFFECTIVE:-false}" = "true" ]; then
+            args+=(--performance-write)
+          fi
+          python scripts/performance_tracker.py morning-report --root . "${args[@]}"
+
+      - name: Persist performance-data branch
+        continue-on-error: true
+        if: env.PERFORMANCE_WRITE_EFFECTIVE == 'true' && vars.PERFORMANCE_TRACKING_ENABLED != 'false'
+        env:
+          PERFORMANCE_DATA_BRANCH: ${{ vars.PERFORMANCE_DATA_BRANCH || 'performance-data' }}
+        run: |
+          python scripts/performance_tracker.py persist-branch --root . --branch "$PERFORMANCE_DATA_BRANCH"
+
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: us-morning-report-${{ github.run_number }}
+          path: |
+            reports/
+            performance/
+          retention-days: 30
