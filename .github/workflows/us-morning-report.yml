@@ -4,7 +4,7 @@ on:
   # GitHub Actions cron uses UTC.
   # 00:00 UTC Tuesday-Saturday = 08:00 Malaysia time Tuesday-Saturday.
   schedule:
-    - cron: '0 0 * * 2-6'
+    -  '0 0 * * 2-6'
   workflow_dispatch:
     inputs:
       symbols:
